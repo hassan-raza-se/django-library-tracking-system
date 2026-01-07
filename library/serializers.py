@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import Author, Book, Member, Loan
 from django.contrib.auth.models import User
+from datetime import timedelta
 
 class AuthorSerializer(serializers.ModelSerializer):
     class Meta:
@@ -45,3 +46,40 @@ class LoanSerializer(serializers.ModelSerializer):
     class Meta:
         model = Loan
         fields = ['id', 'book', 'book_id', 'member', 'member_id', 'loan_date', 'return_date', 'is_returned']
+
+
+class ExtendDateSerializer(LoanSerializer):
+    additional_days = serializers.IntegerField(min_value=1, write_only=True)
+
+    def validate_additional_days(self, additional_days):
+        
+        if not additional_days:
+            raise serializers.ValidationError('additional_days is required in payload')
+        
+        if self.instance.is_returned:
+            raise serializers.ValidationError('Load already returned')
+        
+        if self.instance.is_overdue:
+            raise serializers.ValidationError('Loan already overdue')
+
+        return additional_days
+
+    def update(self, instance, validated_data):
+        instance.due_date += timedelta(days=validated_data['additional_days']) 
+        instance.save()
+        return instance
+    
+    class Meta:
+        model = Loan
+        fields = ['id', 'book', 'book_id', 'member', 'member_id', 'loan_date', 'return_date', 'is_returned', 'additional_days', 'due_date']
+
+
+class TopActiveMemberSerializer(serializers.ModelSerializer):
+    
+    username = serializers.CharField(source='user.username')
+    email = serializers.CharField(source='user.email')
+    active_loans = serializers.IntegerField()
+
+    class Meta:
+        model = Member
+        fields = ['id', 'username', 'email', 'active_loans']

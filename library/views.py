@@ -4,14 +4,17 @@ from .models import Author, Book, Member, Loan
 from .serializers import AuthorSerializer, BookSerializer, MemberSerializer, LoanSerializer
 from rest_framework.decorators import action
 from django.utils import timezone
+from django.db.models import Q, Count
 from .tasks import send_loan_notification
+from .serializers import ExtendDateSerializer, TopActiveMemberSerializer
+
 
 class AuthorViewSet(viewsets.ModelViewSet):
     queryset = Author.objects.all()
     serializer_class = AuthorSerializer
 
 class BookViewSet(viewsets.ModelViewSet):
-    queryset = Book.objects.all()
+    queryset = Book.objects.select_related('author').all()
     serializer_class = BookSerializer
 
     @action(detail=True, methods=['post'])
@@ -49,6 +52,21 @@ class MemberViewSet(viewsets.ModelViewSet):
     queryset = Member.objects.all()
     serializer_class = MemberSerializer
 
+    @action(detail=False, methods=['get'], url_path='top-active', serializer_class=TopActiveMemberSerializer)
+    def top_active(self, request):
+        members = (
+            self.get_queryset().annotate(
+                active_loans = Count('loans', filters=(Q(loans__is_returned=False)))
+            ).select_related('user').order_by('-active_loans')[:5]
+        )
+        serializer = self.get_serializer(members, many=True)
+        return Response(serializer.data)
+
+
 class LoanViewSet(viewsets.ModelViewSet):
     queryset = Loan.objects.all()
     serializer_class = LoanSerializer
+
+    @action(detail=True, methods=['patch'], serializer_class=ExtendDateSerializer)
+    def extend_due_date(self, request, pk=None):
+        return self.partial_update(request, pk)
